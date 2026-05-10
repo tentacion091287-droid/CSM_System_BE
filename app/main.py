@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.session import engine, Base
-from app.routers import auth, admin, vehicles, drivers
+from app.routers import auth, admin, vehicles, drivers, bookings
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(vehicles.router, prefix="/api/v1")
 app.include_router(drivers.router, prefix="/api/v1")
+app.include_router(bookings.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health", tags=["health"])
