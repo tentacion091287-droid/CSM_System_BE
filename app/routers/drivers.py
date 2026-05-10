@@ -10,7 +10,8 @@ from app.schemas.driver import (
     DriverAvailabilityUpdate,
     PaginatedDrivers,
 )
-from app.services import driver_service
+from app.schemas.driver_rating import RatingCreate, RatingResponse, PaginatedRatings
+from app.services import driver_service, driver_rating_service
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
 
@@ -63,20 +64,21 @@ async def toggle_availability(
     return await driver_service.toggle_availability(db, driver_id, data)
 
 
-@router.get("/{driver_id}/ratings")
+@router.get("/{driver_id}/ratings", response_model=PaginatedRatings)
 async def get_driver_ratings(
     driver_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    # Stub — implemented in Phase 9
-    return {"items": [], "total": 0, "driver_id": str(driver_id)}
+    return await driver_rating_service.list_driver_ratings(db, driver_id, page, size)
 
 
-@router.post("/ratings", status_code=status.HTTP_201_CREATED)
+@router.post("/ratings", response_model=RatingResponse, status_code=status.HTTP_201_CREATED)
 async def submit_rating(
+    data: RatingCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    # Stub — implemented in Phase 9
-    return {"detail": "Rating submission will be available in Phase 9"}
+    return await driver_rating_service.submit_rating(db, data, current_user)

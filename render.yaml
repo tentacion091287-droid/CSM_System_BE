@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: csm-system-be
+    env: python
+    region: singapore   # closest free region; change to oregon/frankfurt if needed
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start.sh
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # set manually in Render dashboard (Supabase URL)
+      - key: SECRET_KEY
+        generateValue: true  # Render auto-generates a secure random value
+      - key: ALLOWED_ORIGINS
+        value: "http://localhost:5173"   # replace with your frontend URL after deploy
+      - key: PYTHON_VERSION
+        value: "3.11.0"

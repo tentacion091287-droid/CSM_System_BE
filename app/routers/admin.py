@@ -2,11 +2,20 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_db, require_admin
+from app.schemas.dashboard import DashboardResponse
 from app.schemas.user import UserResponse, PaginatedUsers, RoleUpdate
 from app.models.user import User
-from app.services import user_service
+from app.services import user_service, dashboard_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+async def get_dashboard(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    return await dashboard_service.get_dashboard(db)
 
 
 @router.get("/users", response_model=PaginatedUsers)

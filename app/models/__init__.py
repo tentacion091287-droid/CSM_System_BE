@@ -6,3 +6,4 @@ from app.models.payment import Payment  # noqa: F401
 from app.models.invoice import Invoice  # noqa: F401
 from app.models.fine import Fine  # noqa: F401
 from app.models.maintenance import Maintenance  # noqa: F401
+from app.models.driver_rating import DriverRating  # noqa: F401
