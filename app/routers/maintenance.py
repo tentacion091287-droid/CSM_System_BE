@@ -74,3 +74,12 @@ async def cancel_maintenance(
     _: User = Depends(require_admin),
 ):
     return await maintenance_service.cancel_maintenance(db, record_id)
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_maintenance(
+    record_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    await maintenance_service.delete_maintenance(db, record_id)

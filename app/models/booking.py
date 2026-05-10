@@ -3,7 +3,7 @@ import uuid
 from decimal import Decimal
 from sqlalchemy import Boolean, CheckConstraint, Date, Enum as SAEnum, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy import DateTime
 from app.db.session import Base
@@ -53,3 +53,12 @@ class Booking(Base):
     updated_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+    vehicle  = relationship("Vehicle",      foreign_keys=[vehicle_id],  lazy="raise")
+    customer = relationship("User",         foreign_keys=[customer_id], lazy="raise")
+    driver   = relationship("Driver",       foreign_keys=[driver_id],   lazy="raise")
+    rating   = relationship("DriverRating", foreign_keys="DriverRating.booking_id", uselist=False, lazy="raise")
+
+    @property
+    def driver_rated(self) -> bool:
+        return self.rating is not None

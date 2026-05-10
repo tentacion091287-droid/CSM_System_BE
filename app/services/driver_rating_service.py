@@ -27,7 +27,7 @@ async def submit_rating(db: AsyncSession, data: RatingCreate, current_user: User
             detail="You can only rate your own bookings",
         )
 
-    if booking.driver_id != data.driver_id:
+    if not booking.driver_id or booking.driver_id != data.driver_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Driver was not assigned to this booking",

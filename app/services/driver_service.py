@@ -10,8 +10,11 @@ async def list_drivers(
     db: AsyncSession,
     page: int = 1,
     size: int = 20,
+    is_available: bool | None = None,
 ) -> dict:
     query = select(Driver).where(Driver.is_active == True)
+    if is_available is not None:
+        query = query.where(Driver.is_available == is_available)
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
     drivers = (await db.execute(query.offset((page - 1) * size).limit(size))).scalars().all()
     return {
@@ -106,3 +109,9 @@ async def toggle_availability(
     await db.commit()
     await db.refresh(driver)
     return driver
+
+
+async def deactivate_driver(db: AsyncSession, driver_id: uuid.UUID) -> None:
+    driver = await get_driver(db, driver_id)
+    driver.is_active = False
+    await db.commit()

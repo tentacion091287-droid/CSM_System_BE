@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class DriverCreate(BaseModel):
@@ -34,6 +34,16 @@ class DriverResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def name(self) -> str:
+        return self.full_name
+
+    @computed_field
+    @property
+    def average_rating(self) -> Decimal:
+        return self.avg_rating
 
     model_config = {"from_attributes": True}
 

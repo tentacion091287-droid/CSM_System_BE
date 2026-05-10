@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.models.booking import Booking, BookingStatus
 from app.models.vehicle import Vehicle, VehicleStatus
@@ -17,8 +18,26 @@ from app.schemas.booking import (
 )
 
 
+_BOOKING_RELS = [
+    selectinload(Booking.vehicle),
+    selectinload(Booking.customer),
+    selectinload(Booking.driver),
+    selectinload(Booking.rating),
+]
+
+
 async def _get_booking_or_404(db: AsyncSession, booking_id: uuid.UUID) -> Booking:
     result = await db.execute(select(Booking).where(Booking.id == booking_id))
+    booking = result.scalar_one_or_none()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    return booking
+
+
+async def _get_booking_with_rels(db: AsyncSession, booking_id: uuid.UUID) -> Booking:
+    result = await db.execute(
+        select(Booking).options(*_BOOKING_RELS).where(Booking.id == booking_id)
+    )
     booking = result.scalar_one_or_none()
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
@@ -75,18 +94,24 @@ async def create_booking(db: AsyncSession, data: BookingCreate, current_user: Us
     db.add(booking)
     await db.commit()
     await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)
 
 
 async def list_bookings(db: AsyncSession, current_user: User, page: int, size: int) -> dict:
     if current_user.role == UserRole.admin:
-        query = select(Booking)
+        base = select(Booking)
     else:
-        query = select(Booking).where(Booking.customer_id == current_user.id)
+        base = select(Booking).where(Booking.customer_id == current_user.id)
 
-    query = query.order_by(Booking.created_at.desc())
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
-    bookings = (await db.execute(query.offset((page - 1) * size).limit(size))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
+    bookings = (
+        await db.execute(
+            base.options(*_BOOKING_RELS)
+            .order_by(Booking.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+    ).scalars().all()
     return {
         "items": bookings,
         "total": total,
@@ -100,20 +125,23 @@ async def get_booking(db: AsyncSession, booking_id: uuid.UUID, current_user: Use
     booking = await _get_booking_or_404(db, booking_id)
     if current_user.role != UserRole.admin and booking.customer_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return booking
+    return await _get_booking_with_rels(db, booking_id)
 
 
 async def get_history(db: AsyncSession, current_user: User, page: int, size: int) -> dict:
-    query = (
-        select(Booking)
-        .where(
-            Booking.customer_id == current_user.id,
-            Booking.status == BookingStatus.completed,
-        )
-        .order_by(Booking.created_at.desc())
+    base = select(Booking).where(
+        Booking.customer_id == current_user.id,
+        Booking.status == BookingStatus.completed,
     )
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
-    bookings = (await db.execute(query.offset((page - 1) * size).limit(size))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
+    bookings = (
+        await db.execute(
+            base.options(*_BOOKING_RELS)
+            .order_by(Booking.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+    ).scalars().all()
     return {
         "items": bookings,
         "total": total,
@@ -160,8 +188,7 @@ async def update_booking(
         setattr(booking, key, value)
 
     await db.commit()
-    await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)
 
 
 async def cancel_booking(db: AsyncSession, booking_id: uuid.UUID, current_user: User) -> None:
@@ -184,8 +211,7 @@ async def approve_booking(db: AsyncSession, booking_id: uuid.UUID) -> Booking:
         )
     booking.status = BookingStatus.approved
     await db.commit()
-    await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)
 
 
 async def reject_booking(
@@ -201,8 +227,7 @@ async def reject_booking(
     if data.admin_notes:
         booking.admin_notes = data.admin_notes
     await db.commit()
-    await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)
 
 
 async def activate_booking(db: AsyncSession, booking_id: uuid.UUID) -> Booking:
@@ -228,8 +253,7 @@ async def activate_booking(db: AsyncSession, booking_id: uuid.UUID) -> Booking:
             driver.is_available = False
 
     await db.commit()
-    await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)
 
 
 async def complete_booking(
@@ -261,8 +285,7 @@ async def complete_booking(
         await fine_service.create_fine(db, booking)
 
     await db.commit()
-    await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)
 
 
 async def assign_driver(
@@ -283,5 +306,4 @@ async def assign_driver(
 
     booking.driver_id = data.driver_id
     await db.commit()
-    await db.refresh(booking)
-    return booking
+    return await _get_booking_with_rels(db, booking.id)

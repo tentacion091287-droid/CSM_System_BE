@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, computed_field
 from app.models.user import UserRole
 
 
@@ -13,6 +13,11 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def name(self) -> str:
+        return self.full_name
 
     model_config = {"from_attributes": True}
 

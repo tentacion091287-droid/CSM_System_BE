@@ -3,11 +3,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.models.booking import Booking
 from app.models.fine import Fine, FineStatus
 from app.models.user import User, UserRole
 from app.core.config import settings
+
+_FINE_RELS = [selectinload(Fine.booking), selectinload(Fine.customer)]
 
 
 async def create_fine(db: AsyncSession, booking: Booking) -> Fine | None:
@@ -29,13 +32,19 @@ async def create_fine(db: AsyncSession, booking: Booking) -> Fine | None:
 
 async def list_fines(db: AsyncSession, current_user: User, page: int, size: int) -> dict:
     if current_user.role == UserRole.admin:
-        query = select(Fine)
+        base = select(Fine)
     else:
-        query = select(Fine).where(Fine.customer_id == current_user.id)
+        base = select(Fine).where(Fine.customer_id == current_user.id)
 
-    query = query.order_by(Fine.created_at.desc())
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
-    fines = (await db.execute(query.offset((page - 1) * size).limit(size))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
+    fines = (
+        await db.execute(
+            base.options(*_FINE_RELS)
+            .order_by(Fine.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+    ).scalars().all()
     return {
         "items": fines,
         "total": total,
@@ -53,11 +62,21 @@ async def _get_fine_or_404(db: AsyncSession, fine_id: uuid.UUID) -> Fine:
     return fine
 
 
+async def _get_fine_with_rels(db: AsyncSession, fine_id: uuid.UUID) -> Fine:
+    result = await db.execute(
+        select(Fine).options(*_FINE_RELS).where(Fine.id == fine_id)
+    )
+    fine = result.scalar_one_or_none()
+    if not fine:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fine not found")
+    return fine
+
+
 async def get_fine(db: AsyncSession, fine_id: uuid.UUID, current_user: User) -> Fine:
     fine = await _get_fine_or_404(db, fine_id)
     if current_user.role != UserRole.admin and fine.customer_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return fine
+    return await _get_fine_with_rels(db, fine_id)
 
 
 async def get_fine_by_booking(
@@ -69,7 +88,7 @@ async def get_fine_by_booking(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fine not found")
     if current_user.role != UserRole.admin and fine.customer_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return fine
+    return await _get_fine_with_rels(db, fine.id)
 
 
 async def waive_fine(db: AsyncSession, fine_id: uuid.UUID) -> Fine:
@@ -81,8 +100,7 @@ async def waive_fine(db: AsyncSession, fine_id: uuid.UUID) -> Fine:
         )
     fine.status = FineStatus.waived
     await db.commit()
-    await db.refresh(fine)
-    return fine
+    return await _get_fine_with_rels(db, fine.id)
 
 
 async def pay_fine(db: AsyncSession, fine_id: uuid.UUID, current_user: User) -> Fine:
@@ -97,5 +115,4 @@ async def pay_fine(db: AsyncSession, fine_id: uuid.UUID, current_user: User) -> 
     fine.status = FineStatus.paid
     fine.paid_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(fine)
-    return fine
+    return await _get_fine_with_rels(db, fine.id)

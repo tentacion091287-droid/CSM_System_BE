@@ -20,10 +20,11 @@ router = APIRouter(prefix="/drivers", tags=["drivers"])
 async def list_drivers(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    is_available: bool | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    return await driver_service.list_drivers(db, page, size)
+    return await driver_service.list_drivers(db, page, size, is_available=is_available)
 
 
 @router.get("/{driver_id}", response_model=DriverResponse)
@@ -52,6 +53,15 @@ async def update_driver(
     _: User = Depends(require_admin),
 ):
     return await driver_service.update_driver(db, driver_id, data)
+
+
+@router.delete("/{driver_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_driver(
+    driver_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    await driver_service.deactivate_driver(db, driver_id)
 
 
 @router.patch("/{driver_id}/availability", response_model=DriverResponse)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from app.models.vehicle import VehicleCategory, FuelType, VehicleStatus
 
 
@@ -47,6 +47,11 @@ class VehicleResponse(BaseModel):
     image_url: str | None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def price_per_day(self) -> Decimal:
+        return self.daily_rate
 
     model_config = {"from_attributes": True}
 

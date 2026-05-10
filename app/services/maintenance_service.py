@@ -153,3 +153,16 @@ async def cancel_maintenance(db: AsyncSession, record_id: uuid.UUID) -> Maintena
     await db.commit()
     await db.refresh(record)
     return record
+
+
+async def delete_maintenance(db: AsyncSession, record_id: uuid.UUID) -> None:
+    record = await _get_record_or_404(db, record_id)
+
+    if record.status not in (MaintenanceStatus.scheduled, MaintenanceStatus.cancelled):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only scheduled or cancelled records can be deleted",
+        )
+
+    await db.delete(record)
+    await db.commit()

@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 from sqlalchemy import DateTime, ForeignKey, Numeric, SmallInteger, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
 
@@ -33,3 +33,10 @@ class Invoice(Base):
     issued_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    booking = relationship("Booking", foreign_keys=[booking_id], lazy="raise")
+    payment = relationship("Payment", foreign_keys=[payment_id], lazy="raise")
+
+    @property
+    def customer(self):
+        return self.payment.customer if self.payment else None

@@ -2,16 +2,33 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.models.booking import Booking, BookingStatus
 from app.models.payment import Payment, PaymentStatus
+from app.models.vehicle import Vehicle
 from app.models.user import User, UserRole
 from app.schemas.payment import PaymentCreate
 from app.services import invoice_service
 
+_PAYMENT_RELS = [
+    selectinload(Payment.customer),
+    selectinload(Payment.booking).selectinload(Booking.vehicle),
+]
+
 
 async def _get_payment_or_404(db: AsyncSession, payment_id: uuid.UUID) -> Payment:
     result = await db.execute(select(Payment).where(Payment.id == payment_id))
+    payment = result.scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
+    return payment
+
+
+async def _get_payment_with_rels(db: AsyncSession, payment_id: uuid.UUID) -> Payment:
+    result = await db.execute(
+        select(Payment).options(*_PAYMENT_RELS).where(Payment.id == payment_id)
+    )
     payment = result.scalar_one_or_none()
     if not payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
@@ -54,18 +71,24 @@ async def initiate_payment(
     db.add(payment)
     await db.commit()
     await db.refresh(payment)
-    return payment
+    return await _get_payment_with_rels(db, payment.id)
 
 
 async def list_payments(db: AsyncSession, current_user: User, page: int, size: int) -> dict:
     if current_user.role == UserRole.admin:
-        query = select(Payment)
+        base = select(Payment)
     else:
-        query = select(Payment).where(Payment.customer_id == current_user.id)
+        base = select(Payment).where(Payment.customer_id == current_user.id)
 
-    query = query.order_by(Payment.created_at.desc())
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
-    payments = (await db.execute(query.offset((page - 1) * size).limit(size))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
+    payments = (
+        await db.execute(
+            base.options(*_PAYMENT_RELS)
+            .order_by(Payment.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+    ).scalars().all()
     return {
         "items": payments,
         "total": total,
@@ -79,7 +102,7 @@ async def get_payment(db: AsyncSession, payment_id: uuid.UUID, current_user: Use
     payment = await _get_payment_or_404(db, payment_id)
     if current_user.role != UserRole.admin and payment.customer_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return payment
+    return await _get_payment_with_rels(db, payment_id)
 
 
 async def process_payment(db: AsyncSession, payment_id: uuid.UUID) -> Payment:
@@ -97,8 +120,7 @@ async def process_payment(db: AsyncSession, payment_id: uuid.UUID) -> Payment:
     await invoice_service.create_invoice(db, payment)
 
     await db.commit()
-    await db.refresh(payment)
-    return payment
+    return await _get_payment_with_rels(db, payment.id)
 
 
 async def refund_payment(db: AsyncSession, payment_id: uuid.UUID) -> Payment:
@@ -111,5 +133,4 @@ async def refund_payment(db: AsyncSession, payment_id: uuid.UUID) -> Payment:
 
     payment.status = PaymentStatus.refunded
     await db.commit()
-    await db.refresh(payment)
-    return payment
+    return await _get_payment_with_rels(db, payment.id)

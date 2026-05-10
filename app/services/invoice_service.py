@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.models.booking import Booking
 from app.models.invoice import Invoice
@@ -10,6 +11,11 @@ from app.models.payment import Payment
 from app.models.user import User, UserRole
 from app.models.vehicle import Vehicle
 from app.core.config import settings
+
+_INVOICE_RELS = [
+    selectinload(Invoice.booking).selectinload(Booking.vehicle),
+    selectinload(Invoice.payment).selectinload(Payment.customer),
+]
 
 
 async def _generate_invoice_number(db: AsyncSession) -> str:
@@ -59,17 +65,23 @@ async def create_invoice(db: AsyncSession, payment: Payment) -> Invoice:
 
 async def list_invoices(db: AsyncSession, current_user: User, page: int, size: int) -> dict:
     if current_user.role == UserRole.admin:
-        query = select(Invoice)
+        base = select(Invoice)
     else:
-        query = (
+        base = (
             select(Invoice)
             .join(Payment, Invoice.payment_id == Payment.id)
             .where(Payment.customer_id == current_user.id)
         )
 
-    query = query.order_by(Invoice.issued_at.desc())
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
-    invoices = (await db.execute(query.offset((page - 1) * size).limit(size))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
+    invoices = (
+        await db.execute(
+            base.options(*_INVOICE_RELS)
+            .order_by(Invoice.issued_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+    ).scalars().all()
     return {
         "items": invoices,
         "total": total,
@@ -81,6 +93,16 @@ async def list_invoices(db: AsyncSession, current_user: User, page: int, size: i
 
 async def _get_invoice_or_404(db: AsyncSession, invoice_id: uuid.UUID) -> Invoice:
     result = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return invoice
+
+
+async def _get_invoice_with_rels(db: AsyncSession, invoice_id: uuid.UUID) -> Invoice:
+    result = await db.execute(
+        select(Invoice).options(*_INVOICE_RELS).where(Invoice.id == invoice_id)
+    )
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
@@ -99,7 +121,7 @@ async def _check_invoice_access(db: AsyncSession, invoice: Invoice, current_user
 async def get_invoice(db: AsyncSession, invoice_id: uuid.UUID, current_user: User) -> Invoice:
     invoice = await _get_invoice_or_404(db, invoice_id)
     await _check_invoice_access(db, invoice, current_user)
-    return invoice
+    return await _get_invoice_with_rels(db, invoice_id)
 
 
 async def get_invoice_by_booking(
@@ -110,4 +132,4 @@ async def get_invoice_by_booking(
     if not invoice:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
     await _check_invoice_access(db, invoice, current_user)
-    return invoice
+    return await _get_invoice_with_rels(db, invoice.id)
