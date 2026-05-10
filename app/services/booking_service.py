@@ -256,7 +256,9 @@ async def complete_booking(
         if driver:
             driver.is_available = True
 
-    # Fine creation for late returns is handled in Phase 7
+    if booking.actual_return and booking.actual_return > booking.return_date:
+        from app.services import fine_service
+        await fine_service.create_fine(db, booking)
 
     await db.commit()
     await db.refresh(booking)

@@ -32,8 +32,10 @@ async def create_invoice(db: AsyncSession, payment: Payment) -> Invoice:
     rental_days = (booking.return_date - booking.pickup_date).days
     base_amount = Decimal(rental_days) * vehicle.daily_rate
 
-    # Fine lookup wired up in Phase 7
-    fine_amount = Decimal("0.00")
+    from app.models.fine import Fine
+    fine_result = await db.execute(select(Fine).where(Fine.booking_id == booking.id))
+    fine = fine_result.scalar_one_or_none()
+    fine_amount = fine.total_amount if fine else Decimal("0.00")
 
     tax_amount = (base_amount + fine_amount) * Decimal(str(settings.TAX_RATE))
     total_amount = base_amount + fine_amount + tax_amount
