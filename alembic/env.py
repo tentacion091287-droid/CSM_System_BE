@@ -22,17 +22,34 @@ def _sync_url(url: str) -> str:
     """
     Convert an asyncpg URL to a psycopg2-compatible synchronous URL.
 
-    asyncpg prepared statements conflict with PgBouncer transaction-mode
-    pooling (DuplicatePreparedStatementError).  Alembic does not need asyncpg
-    — a regular psycopg2 connection avoids the problem entirely.
+    Handles two issues:
+    1. asyncpg prepared statements conflict with PgBouncer transaction-mode
+       pooling — psycopg2 avoids this entirely.
+    2. asyncpg accepts ?ssl=require but psycopg2 requires ?sslmode=require.
     """
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+
+    # Normalise scheme: strip +asyncpg driver suffix, ensure postgresql://
     for prefix in ("postgresql+asyncpg://", "postgres+asyncpg://"):
         if url.startswith(prefix):
-            return "postgresql://" + url[len(prefix):]
-    # Render sometimes gives plain "postgres://" — SQLAlchemy requires "postgresql://"
-    if url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://"):]
-    return url
+            url = "postgresql://" + url[len(prefix):]
+            break
+    else:
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+
+    # Translate asyncpg SSL params → psycopg2 SSL params
+    # asyncpg: ?ssl=require / ?ssl=true / ?ssl=1
+    # psycopg2: ?sslmode=require
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query, keep_blank_values=True)
+
+    ssl_val = params.pop("ssl", None)
+    if ssl_val and ssl_val[0].lower() in ("require", "true", "1", "verify-ca", "verify-full"):
+        params.setdefault("sslmode", ["require"])
+
+    new_query = urlencode({k: v[0] for k, v in params.items()})
+    return urlunparse(parsed._replace(query=new_query))
 
 
 def run_migrations_offline() -> None:
