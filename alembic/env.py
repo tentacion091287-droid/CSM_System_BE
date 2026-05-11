@@ -1,9 +1,7 @@
-import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
@@ -20,9 +18,26 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _sync_url(url: str) -> str:
+    """
+    Convert an asyncpg URL to a psycopg2-compatible synchronous URL.
+
+    asyncpg prepared statements conflict with PgBouncer transaction-mode
+    pooling (DuplicatePreparedStatementError).  Alembic does not need asyncpg
+    — a regular psycopg2 connection avoids the problem entirely.
+    """
+    for prefix in ("postgresql+asyncpg://", "postgres+asyncpg://"):
+        if url.startswith(prefix):
+            return "postgresql://" + url[len(prefix):]
+    # Render sometimes gives plain "postgres://" — SQLAlchemy requires "postgresql://"
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.DATABASE_URL,
+        url=_sync_url(settings.DATABASE_URL),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -37,21 +52,14 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    # Build engine directly from settings so special chars in the password
-    # (e.g. % @ !) never pass through configparser interpolation.
-    connectable = create_async_engine(
-        settings.DATABASE_URL,
-        poolclass=pool.NullPool,
-        connect_args={"statement_cache_size": 0},
-    )
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
-
-
 def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    connectable = create_engine(
+        _sync_url(settings.DATABASE_URL),
+        poolclass=pool.NullPool,
+    )
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
+    connectable.dispose()
 
 
 if context.is_offline_mode():
