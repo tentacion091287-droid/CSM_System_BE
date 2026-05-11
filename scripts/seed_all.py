@@ -15,8 +15,10 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
+from uuid import uuid4
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.security import hash_password
@@ -423,7 +425,15 @@ async def _seed_maintenance(db: AsyncSession, vehicles: list[Vehicle]) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def seed() -> None:
-    engine  = create_async_engine(settings.DATABASE_URL, echo=False, future=True)
+    engine  = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        poolclass=NullPool,
+        connect_args={
+            "statement_cache_size": 0,
+            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+        },
+    )
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with Session() as db:

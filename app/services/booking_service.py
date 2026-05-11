@@ -1,6 +1,7 @@
 import uuid
 from datetime import date
 from decimal import Decimal
+from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -84,7 +85,8 @@ async def create_booking(db: AsyncSession, data: BookingCreate, current_user: Us
     await _check_vehicle_availability(db, data.vehicle_id, data.pickup_date, data.return_date)
 
     days = (data.return_date - data.pickup_date).days
-    estimated_cost = Decimal(days) * vehicle.daily_rate
+    driver_cost = Decimal(str(settings.DRIVER_DAILY_RATE)) * days if data.needs_driver else Decimal(0)
+    estimated_cost = Decimal(days) * vehicle.daily_rate + driver_cost
 
     booking = Booking(
         **data.model_dump(),
@@ -172,17 +174,22 @@ async def update_booking(
             detail="return_date must be after pickup_date",
         )
 
-    date_changed = "pickup_date" in updates or "return_date" in updates
-    if date_changed:
-        await _check_vehicle_availability(
-            db, booking.vehicle_id, new_pickup, new_return, exclude_booking_id=booking_id
-        )
+    date_changed   = "pickup_date" in updates or "return_date" in updates
+    driver_changed = "needs_driver" in updates
+
+    if date_changed or driver_changed:
+        if date_changed:
+            await _check_vehicle_availability(
+                db, booking.vehicle_id, new_pickup, new_return, exclude_booking_id=booking_id
+            )
         vehicle_result = await db.execute(
             select(Vehicle).where(Vehicle.id == booking.vehicle_id)
         )
         vehicle = vehicle_result.scalar_one()
         days = (new_return - new_pickup).days
-        updates["estimated_cost"] = Decimal(days) * vehicle.daily_rate
+        needs_driver = updates.get("needs_driver", booking.needs_driver)
+        driver_cost = Decimal(str(settings.DRIVER_DAILY_RATE)) * days if needs_driver else Decimal(0)
+        updates["estimated_cost"] = Decimal(days) * vehicle.daily_rate + driver_cost
 
     for key, value in updates.items():
         setattr(booking, key, value)

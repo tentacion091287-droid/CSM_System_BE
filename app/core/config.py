@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     DAILY_FINE_RATE: float = 500.0
+    DRIVER_DAILY_RATE: float = 300.0
     TAX_RATE: float = 0.18
     # Plain string — avoids pydantic-settings JSON-decoding the value before
     # we get a chance to parse it.  Accepts any of:
