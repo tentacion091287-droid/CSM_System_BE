@@ -99,11 +99,16 @@ async def create_booking(db: AsyncSession, data: BookingCreate, current_user: Us
     return await _get_booking_with_rels(db, booking.id)
 
 
-async def list_bookings(db: AsyncSession, current_user: User, page: int, size: int) -> dict:
+async def list_bookings(
+    db: AsyncSession, current_user: User, page: int, size: int, status: BookingStatus | None = None
+) -> dict:
     if current_user.role == UserRole.admin:
         base = select(Booking)
     else:
         base = select(Booking).where(Booking.customer_id == current_user.id)
+
+    if status is not None:
+        base = base.where(Booking.status == status)
 
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
     bookings = (

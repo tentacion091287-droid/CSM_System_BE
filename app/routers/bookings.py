@@ -2,6 +2,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_db, get_current_user, require_admin
+from app.models.booking import BookingStatus
 from app.models.user import User
 from app.schemas.booking import (
     AssignDriverRequest,
@@ -30,10 +31,11 @@ async def create_booking(
 async def list_bookings(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    status: BookingStatus | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await booking_service.list_bookings(db, current_user, page, size)
+    return await booking_service.list_bookings(db, current_user, page, size, status)
 
 
 # /history must be registered before /{booking_id} to avoid UUID parse failure
